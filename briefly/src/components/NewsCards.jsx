@@ -8,7 +8,7 @@ export default function NewsCards({ selectedTags }) {
           <h1
             className={`font-[family-name:var(--font-alex-brush)] text-5xl text-center bg-clip-text text-transparent bg-gradient-to-b from-neutral-50 to-neutral-400 bg-opacity-50`}
           >
-            Briefly
+            Shortly
           </h1>
           {/* <p className={`${alexBrush.className} invisible text-2xl sm:visible`}>Welcome !</p> */}
           {/* <ThemeToggle /> */}

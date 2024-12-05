@@ -1,70 +1,71 @@
-// app/api/recommendation/route.js
-
 import { withApiAuthRequired, getSession } from '@auth0/nextjs-auth0';
-import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { MongoClient } from 'mongodb';
 import { NextResponse } from 'next/server';
 
-// Initialize DynamoDB client
-const dynamoDbClient = new DynamoDBClient({ region: 'us-east-1' });
+const client = new MongoClient('mongodb+srv://arsh:qaz000@news.bp0c6.mongodb.net/?retryWrites=true&w=majority&appName=news');
+const dbName = 'news_db';
+const collectionName = 'summarized_articles';
 
 export const GET = withApiAuthRequired(async function handler(req) {
-   const session = await getSession(req);
-   
-   if (!session || !session.user) {
-      return NextResponse.json({ error: 'User is not authenticated' }, { status: 401 });
-   }
+    const session = await getSession(req);
 
-   const userId = session.user.sub;
+    if (!session || !session.user) {
+        return NextResponse.json({ error: 'User is not authenticated' }, { status: 401 });
+    }
 
-   // Extract lastKey from query parameters (for pagination)
-   const { searchParams } = new URL(req.url);
-   const lastKey = searchParams.get('lastKey') ? JSON.parse(searchParams.get('lastKey')) : undefined;
-   const tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : undefined;
+    const userId = session.user.sub;
+    const { searchParams } = new URL(req.url);
+    const lastKey = searchParams.get('lastKey') || null;
+    const tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : [];
 
-   try {
-      console.log('Fetching recommendations for user:', userId);
-      const preferredTags = tags || [];
+    if (tags.length === 0) {
+        return NextResponse.json({ articles: [] }, { status: 200 });
+    }
 
-      if (preferredTags.length === 0) {
-         return NextResponse.json({ articles: [] }, { status: 200 });
-      }
+    try {
+        await client.connect();
+        const db = client.db(dbName);
+        const collection = db.collection(collectionName);
 
-      // Construct filter expression and fetch recommended articles based on user tags
-      const filterExpression = preferredTags.map((_, idx) => `contains(tags, :tag${idx})`).join(' OR ');
-      const expressionAttributeValues = preferredTags.reduce((acc, tag, idx) => {
-         acc[`:tag${idx}`] = { S: tag };
-         return acc;
-      }, {});
+        // Build query for tags and pagination
+        const query = {
+            tags: { $in: tags },
+            ...(lastKey && { _id: { $gt: lastKey } }),
+        };
 
-      const articlesCommand = new ScanCommand({
-         TableName: 'ArticleSummaries',
-         FilterExpression: filterExpression,
-         ExpressionAttributeValues: expressionAttributeValues,
-         Limit: 10,
-         ExclusiveStartKey: lastKey, // Use the last evaluated key for pagination
-      });
+        const articlesCursor = collection
+            .find(query)
+            .sort({ _id: 1 }) // Consistent ordering for pagination
+            .limit(50); // Fetch more articles for better randomization
 
-      const articlesData = await dynamoDbClient.send(articlesCommand);
+        const articlesData = await articlesCursor.toArray();
 
-      // Format and return the articles
-      const articles = articlesData.Items.map((item) => ({
-         article_id: item.id.S,
-         title: item.title.S,
-         content: item.summary.S,
-         tags: item.tags.L ? item.tags.L.map((tag) => tag.S) : [],
-         image_url: item.imageUrl.S,
-         author: item.author.S,
-         published_date: item.publishDate.N,
-         url: item.url.S,
-      }));
+        // Randomize articles
+        const shuffledArticles = articlesData
+            .map((article) => ({ article, sortKey: Math.random() }))
+            .sort((a, b) => a.sortKey - b.sortKey)
+            .map(({ article }) => article);
 
-      return NextResponse.json({ 
-         articles, 
-         lastKey: articlesData.LastEvaluatedKey || null // Return LastEvaluatedKey for further pagination
-      }, { status: 200 });
+        // Map articles to the expected format
+        const articles = shuffledArticles.slice(0, 10).map(item => ({
+            article_id: item._id.toString(),
+            title: item.title,
+            content: item.summary,
+            tags: item.tags || [],
+            image_url: item.imageUrl,
+            author: item.author,
+            published_date: item.publishDate,
+            url: item.url,
+        }));
 
-   } catch (error) {
-      console.error('Error fetching recommendations:', error);
-      return NextResponse.json({ error: 'Error fetching recommendations' }, { status: 500 });
-   }
+        return NextResponse.json({
+            articles,
+            lastKey: articlesData.length === 50 ? articlesData[49]._id : null,
+        }, { status: 200 });
+    } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        return NextResponse.json({ error: 'Error fetching recommendations' }, { status: 500 });
+    } finally {
+        await client.close();
+    }
 });

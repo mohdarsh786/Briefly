@@ -12,7 +12,7 @@ export default function DefaultHome() {
         <h1
           className={`font-[family-name:var(--font-alex-brush)] text-9xl text-center bg-clip-text text-transparent bg-gradient-to-b from-neutral-50 to-neutral-400 bg-opacity-50`}
         >
-          Briefly
+          Shorts
         </h1>
         <div className="flex justify-center mt-8">
           <LogInSignUpButton />

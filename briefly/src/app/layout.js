@@ -10,7 +10,7 @@ const alexBrush = Alex_Brush({
 });
 
 export const metadata = {
-  title: "Briefly",
+  title: "Shorts",
   description: "TODO !",
 };
 

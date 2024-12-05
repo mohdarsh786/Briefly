@@ -30,7 +30,9 @@ function Recommendations(selectedTags) {
             selectedTags ? JSON.stringify(selectedTags.selectedTags) : ""
           }`
       );
+      console.log(res)
       const data = await res.json();
+      console.log(data)
 
       setArticles((prevArticles) => [...prevArticles, ...data.articles]);
       setLastKey(data.lastKey);
@@ -40,9 +42,12 @@ function Recommendations(selectedTags) {
   );
 
   useEffect(() => {
+    setArticles([]);
+    setCurrentIndex(0);
+    setLastKey(null);
     fetchArticles();
-  }, [fetchArticles]);
-
+  }, [fetchArticles, selectedTags]);
+  
   const nextArticle = () => {
     if (currentIndex < articles.length - 1) {
       setCurrentIndex((prevIndex) => prevIndex + 1);
@@ -105,7 +110,7 @@ function Recommendations(selectedTags) {
               {currentArticle.content}
             </p>
             <div className="mt-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-              Published:  {formatDate(Date(Number(currentArticle.published_date))).toLocaleString()}
+              Published: {formatDate(currentArticle.published_date)}
             </div>
           </div>
         </div>
