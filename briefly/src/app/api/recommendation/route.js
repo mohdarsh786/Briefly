@@ -1,7 +1,8 @@
 import { withApiAuthRequired, getSession } from '@auth0/nextjs-auth0';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import { NextResponse } from 'next/server';
 
+// MongoDB configuration
 const client = new MongoClient('mongodb+srv://arsh:qaz000@news.bp0c6.mongodb.net/?retryWrites=true&w=majority&appName=news');
 const dbName = 'news_db';
 const collectionName = 'summarized_articles';
@@ -9,15 +10,21 @@ const collectionName = 'summarized_articles';
 export const GET = withApiAuthRequired(async function handler(req) {
     const session = await getSession(req);
 
+    // Check user authentication
     if (!session || !session.user) {
         return NextResponse.json({ error: 'User is not authenticated' }, { status: 401 });
     }
 
-    const userId = session.user.sub;
     const { searchParams } = new URL(req.url);
-    const lastKey = searchParams.get('lastKey') || null;
-    const tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : [];
+    const lastKey = searchParams.get('lastKey') || null; // Pagination key
+    let tags = [];
+    try {
+        tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : [];
+    } catch (error) {
+        return NextResponse.json({ error: 'Invalid tags format' }, { status: 400 });
+    }
 
+    // Handle case where no tags are provided
     if (tags.length === 0) {
         return NextResponse.json({ articles: [] }, { status: 200 });
     }
@@ -27,44 +34,43 @@ export const GET = withApiAuthRequired(async function handler(req) {
         const db = client.db(dbName);
         const collection = db.collection(collectionName);
 
-        // Build query for tags and pagination
+        // Query to fetch articles
         const query = {
-            tags: { $in: tags },
-            ...(lastKey && { _id: { $gt: lastKey } }),
+            tags: { $in: tags }, // Match any of the provided tags
+            ...(lastKey && { _id: { $gt: new ObjectId(lastKey) } }), // Pagination logic
         };
 
         const articlesCursor = collection
             .find(query)
-            .sort({ _id: 1 }) // Consistent ordering for pagination
-            .limit(50); // Fetch more articles for better randomization
+            .sort({ publishDate: -1 }) // Sort by latest publish date
+            .limit(50); // Fetch up to 50 articles
 
         const articlesData = await articlesCursor.toArray();
 
         // Randomize articles
-        const shuffledArticles = articlesData
-            .map((article) => ({ article, sortKey: Math.random() }))
-            .sort((a, b) => a.sortKey - b.sortKey)
-            .map(({ article }) => article);
+        const randomizedArticles = articlesData
+            .map(article => ({ ...article, randomKey: Math.random() })) // Assign random keys
+            .sort((a, b) => a.randomKey - b.randomKey); // Sort by random key
 
-        // Map articles to the expected format
-        const articles = shuffledArticles.slice(0, 10).map(item => ({
+        // Map MongoDB articles to API response format
+        const articles = randomizedArticles.slice(0, 10).map(item => ({
             article_id: item._id.toString(),
             title: item.title,
             content: item.summary,
             tags: item.tags || [],
-            image_url: item.imageUrl,
-            author: item.author,
+            image_url: item.imageUrl || '', // Default to empty if no image URL
+            author: item.author || 'Unknown',
             published_date: item.publishDate,
             url: item.url,
         }));
 
         return NextResponse.json({
             articles,
-            lastKey: articlesData.length === 50 ? articlesData[49]._id : null,
+            lastKey: articlesData.length === 50 ? articlesData[49]._id : null, // Update lastKey if more articles are available
         }, { status: 200 });
     } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        return NextResponse.json({ error: 'Error fetching recommendations' }, { status: 500 });
+        console.error('Error fetching articles:', error);
+        return NextResponse.json({ error: 'Server error fetching articles' }, { status: 500 });
     } finally {
         await client.close();
     }
