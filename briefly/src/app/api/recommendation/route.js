@@ -1,77 +1,82 @@
-import { withApiAuthRequired, getSession } from '@auth0/nextjs-auth0';
+import { auth0 } from '@/lib/auth0';
 import { MongoClient, ObjectId } from 'mongodb';
 import { NextResponse } from 'next/server';
 
-// MongoDB configuration
-const client = new MongoClient('mongodb+srv://arsh:qaz000@news.bp0c6.mongodb.net/?retryWrites=true&w=majority&appName=news');
-const dbName = 'news_db';
-const collectionName = 'summarized_articles';
+let cachedClient = null;
 
-export const GET = withApiAuthRequired(async function handler(req) {
-    const session = await getSession(req);
+async function connectToDatabase() {
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) {
+    throw new Error('MONGO_URI is not configured');
+  }
 
-    // Check user authentication
-    if (!session || !session.user) {
-        return NextResponse.json({ error: 'User is not authenticated' }, { status: 401 });
-    }
+  if (!cachedClient) {
+    const client = new MongoClient(mongoUri);
+    cachedClient = await client.connect();
+  }
+  return cachedClient;
+}
 
-    const { searchParams } = new URL(req.url);
-    const lastKey = searchParams.get('lastKey') || null; // Pagination key
-    let tags = [];
-    try {
-        tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : [];
-    } catch (error) {
-        return NextResponse.json({ error: 'Invalid tags format' }, { status: 400 });
-    }
+export const GET = auth0.withApiAuthRequired(async function handler(req) {
+  const session = await auth0.getSession(req);
 
-    // Handle case where no tags are provided
-    if (tags.length === 0) {
-        return NextResponse.json({ articles: [] }, { status: 200 });
-    }
+  if (!session || !session.user) {
+    return NextResponse.json({ error: 'User is not authenticated' }, { status: 401 });
+  }
 
-    try {
-        await client.connect();
-        const db = client.db(dbName);
-        const collection = db.collection(collectionName);
+  const { searchParams } = new URL(req.url);
+  const lastKey = searchParams.get('lastKey') || null;
+  let tags = [];
+  try {
+    tags = searchParams.get('tags') ? JSON.parse(searchParams.get('tags')) : [];
+  } catch (error) {
+    return NextResponse.json({ error: 'Invalid tags format' }, { status: 400 });
+  }
 
-        // Query to fetch articles
-        const query = {
-            tags: { $in: tags }, // Match any of the provided tags
-            ...(lastKey && { _id: { $gt: new ObjectId(lastKey) } }), // Pagination logic
-        };
+  if (tags.length === 0) {
+    return NextResponse.json({ articles: [] }, { status: 200 });
+  }
 
-        const articlesCursor = collection
-            .find(query)
-            .sort({ publishDate: -1 }) // Sort by latest publish date
-            .limit(50); // Fetch up to 50 articles
+  try {
+    const client = await connectToDatabase();
+    const dbName = process.env.MONGO_DB_NAME || 'news_db';
+    const collectionName = process.env.MONGO_RECOMMENDATION_COLLECTION_NAME || 'summarized_articles';
+    const db = client.db(dbName);
+    const collection = db.collection(collectionName);
 
-        const articlesData = await articlesCursor.toArray();
+    const query = {
+      tags: { $in: tags },
+      ...(lastKey && { _id: { $gt: new ObjectId(lastKey) } }),
+    };
 
-        // Randomize articles
-        const randomizedArticles = articlesData
-            .map(article => ({ ...article, randomKey: Math.random() })) // Assign random keys
-            .sort((a, b) => a.randomKey - b.randomKey); // Sort by random key
+    const articlesCursor = collection
+      .find(query)
+      .sort({ publishDate: -1 })
+      .limit(50);
 
-        // Map MongoDB articles to API response format
-        const articles = randomizedArticles.slice(0, 10).map(item => ({
-            article_id: item._id.toString(),
-            title: item.title,
-            content: item.summary,
-            tags: item.tags || [],
-            image_url: item.imageUrl || '', // Default to empty if no image URL
-            author: item.author || 'Unknown',
-            published_date: item.publishDate,
-            url: item.url,
-        }));
+    const articlesData = await articlesCursor.toArray();
 
-        return NextResponse.json({
-            articles,
-            lastKey: articlesData.length === 50 ? articlesData[49]._id : null, // Update lastKey if more articles are available
-        }, { status: 200 });
-    } catch (error) {
-        console.error('Error fetching articles:', error);
-        return NextResponse.json({ error: 'Server error fetching articles' }, { status: 500 });
-    } finally {
-        await client.close();
-    }
+    const randomizedArticles = articlesData
+      .map(article => ({ ...article, randomKey: Math.random() }))
+      .sort((a, b) => a.randomKey - b.randomKey);
+
+    const articles = randomizedArticles.slice(0, 10).map(item => ({
+      article_id: item._id.toString(),
+      title: item.title,
+      content: item.summary,
+      tags: item.tags || [],
+      image_url: item.imageUrl || '',
+      author: item.author || 'Unknown',
+      published_date: item.publishDate,
+      url: item.url,
+    }));
+
+    return NextResponse.json({
+      articles,
+      lastKey: articlesData.length === 50 ? articlesData[49]._id : null,
+    }, { status: 200 });
+  } catch (error) {
+    console.error('Error fetching articles:', error.message);
+    return NextResponse.json({ error: 'Server error fetching articles' }, { status: 500 });
+  }
 });

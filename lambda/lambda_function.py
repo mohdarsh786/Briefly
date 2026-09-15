@@ -1,8 +1,10 @@
 import json
 import uuid
 import logging
+import os
 from pymongo import MongoClient, errors
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 from concurrent.futures import ThreadPoolExecutor
@@ -13,22 +15,34 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
-# Configure Google Generative AI
-genai.configure(api_key="AIzaSyB2eLpy4AGpwaOKaG08EW2LwAIRxzW2s34")
-model = genai.GenerativeModel("gemini-1.5-flash")
+# Configure Google GenAI
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    raise RuntimeError("GEMINI_API_KEY is not configured")
+
+model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+genai_client = genai.Client(api_key=gemini_api_key)
 
 # MongoDB Configuration
 logger.info("Connecting to MongoDB...")
-client = MongoClient("mongodb+srv://arsh:qaz000@news.bp0c6.mongodb.net/?retryWrites=true&w=majority&appName=news")
-db = client["news_db"]
-articles_collection = db["articles"]
-summarized_collection = db["summarized_articles"]
+mongo_uri = os.getenv("MONGO_URI")
+if not mongo_uri:
+    raise RuntimeError("MONGO_URI is not configured")
+
+mongo_db_name = os.getenv("MONGO_DB_NAME", "news_db")
+articles_collection_name = os.getenv("MONGO_ARTICLES_COLLECTION_NAME", "articles")
+summarized_collection_name = os.getenv("MONGO_SUMMARIZED_COLLECTION_NAME", "summarized_articles")
+
+mongo_client = MongoClient(mongo_uri)
+db = mongo_client[mongo_db_name]
+articles_collection = db[articles_collection_name]
+summarized_collection = db[summarized_collection_name]
 logger.info("Connected to MongoDB.")
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=10))
 def summarize_article(url):
-    """Summarize the article using Google Generative AI with retries."""
-    logger.info(f"Summarizing article at {url}")
+    """Summarize the article using Gemini with retries."""
+    logger.info(f"Summarizing article at {url} using model {model_name}")
     prompt = (
         f"Give the answer in json format, with keys as 'summary' and 'tags'. "
         f"Summarize the given news article by accessing the given link in under 150 words. "
@@ -37,40 +51,43 @@ def summarize_article(url):
         f"Innovation, Human Rights, Weather.\n{url}"
     )
     try:
-        response = model.generate_content(prompt)
-        # Check if the response has candidates
-        content = response._result.candidates[0].content.parts[0].text   
-        # Clean content to handle JSON formatting issues
-        content = content.strip()  # Remove leading/trailing whitespace
+        response = genai_client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            ),
+        )
+
+        content = response.text
+        if not content:
+            raise ValueError(
+                f"Empty response received from Gemini model '{model_name}'. "
+                "Check that the model name is valid and the API key has access."
+            )
+
+        # Strip any residual markdown fences (defensive: response_mime_type should prevent them)
+        content = content.strip()
         if content.startswith("```json"):
-            content = content[7:]  # Strip "```json" (7 characters)
-        elif content.startswith("json\n"):
-            content = content[5:]  # Strip "json\n" (5 characters)
-
-        # Remove trailing backticks if present
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
         if content.endswith("```"):
-            content = content[:-3]  # Remove "```" (3 characters)
-        elif content.endswith("\n```"):
-            content = content[:-4]  # Remove "\n```" (4 characters)
-
-        # Final cleanup
+            content = content[:-3]
         content = content.strip()
 
-        print(content)
         result = json.loads(content)
         summary = result.get("summary", "Summary not available")
         tags = result.get("tags", [])
-        print(tags)
-        logger.info(f"Generated summary: {summary[:50]}...")  # Log first 50 chars
+        logger.info(f"Generated summary ({len(summary)} chars), tags: {tags}")
         return summary, tags
 
     except json.JSONDecodeError as e:
-        logger.error(f"Error parsing JSON from model response: {str(e)}")
+        logger.error(f"JSON parse error from model response: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Error summarizing article at {url}: {str(e)}")
         raise
-
 
 
 def process_article(article):
@@ -82,13 +99,11 @@ def process_article(article):
         publish_date = article.get('publishedAt', datetime.utcnow().isoformat())
         publish_timestamp = int(datetime.fromisoformat(publish_date.replace('Z', '+00:00')).timestamp() * 1000)
 
-        # Summarize article
         summary, tags = summarize_article(article_url)
         if not tags or summary in ["Summary not available", "Unable to generate summary"]:
             logger.info(f"Skipping article: {title}. Reason: Empty summary or tags.")
             return
-         
-        # Prepare document for MongoDB
+
         summarized_doc = {
             '_id': str(uuid.uuid4()),
             'messageProcessedTimestamp': int(datetime.now().timestamp() * 1000),
@@ -99,18 +114,14 @@ def process_article(article):
             'author': author,
             'publishDate': publish_timestamp,
             'contentLength': len(summary),
-            'language': 'en',  # Assuming English
+            'language': 'en',
             'imageUrl': article.get('urlToImage', ''),
             'status': 'processed',
         }
-        
-        # Write summarized document to MongoDB
+
         summarized_collection.insert_one(summarized_doc)
-        # test = summarized_collection.find_one({ tags: { '$in': [ 'Technology', 'Crime', 'Sports' ] } })
-        # print(test)
         logger.info(f"Article '{title}' summarized and stored in MongoDB.")
-        
-        # Update the original article to mark it as processed
+
         articles_collection.update_one(
             {"_id": article["_id"]}, 
             {"$set": {"summary": summary, "processed": True}}
@@ -138,11 +149,10 @@ def job():
     process_articles()
     logger.info("Article processing job completed.")
 
-# Schedule the job to run every 5 minutes
 schedule.every(45).minutes.do(job)
 
 if __name__ == "__main__":
     logger.info("Starting scheduled job...")
     while True:
         schedule.run_pending()
-        time.sleep(10)  # Sleep to avoid high CPU usage
+        time.sleep(10)

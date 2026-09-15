@@ -1,10 +1,10 @@
 import React from "react";
-import { getSession } from "@auth0/nextjs-auth0";
+import { auth0 } from "@/lib/auth0";
 import DefaultHome from "../components/DefaultHome";
 import NewsApp from "../components/NewsApp";
 
 export default async function Home() {
-  const session = await getSession();
+  const session = await auth0.getSession();
   const user = session?.user || null;
 
   return (

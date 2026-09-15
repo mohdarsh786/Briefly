@@ -48,15 +48,23 @@ const PreferencesComponent = ({ user }) => {
 
   const handleSubmit = async () => {
     setLoading(true);
+    setError(null);
     try {
-      await fetch("/api/preferences", {
+      const res = await fetch("/api/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ preferences: selectedTags }),
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to save preferences");
+      }
+
       router.push("/");
+      router.refresh();
     } catch (err) {
-      setError("Failed to save preferences");
+      setError(err.message || "Failed to save preferences");
       setLoading(false);
     }
   };

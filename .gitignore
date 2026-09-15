@@ -7,6 +7,9 @@ env/
 local/.env
 news-app/.env
 *.env
+.env
+.env.*
+!.env.example
 
 # Ignore Node Modules
 news-app/node_modules
@@ -78,9 +81,6 @@ dist/
 yarn.lock
 .pnp/
 .pnp.js
-
-# Ignore npm files
-package-lock.json
 
 # Ignore next.js output
 out/

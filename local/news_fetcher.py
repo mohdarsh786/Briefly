@@ -11,21 +11,18 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logging.info("Initializing application...")
 
-# Load environment variables
 load_dotenv()
 NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 MONGO_URI = os.getenv('MONGO_URI')
 MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'news_db')
-MONGO_COLLECTION_NAME = os.getenv('MONGO_COLLECTION_NAME', 'articles')
+MONGO_COLLECTION_NAME = os.getenv('MONGO_ARTICLES_COLLECTION_NAME') or os.getenv('MONGO_COLLECTION_NAME', 'articles')
 
-# Validate environment variables
 if not NEWS_API_KEY:
     logging.error("NEWS_API_KEY is missing from environment variables!")
     raise ValueError("Missing NEWS_API_KEY")
@@ -33,7 +30,6 @@ if not MONGO_URI:
     logging.error("MONGO_URI is missing from environment variables!")
     raise ValueError("Missing MONGO_URI")
 
-# Connect to MongoDB
 logging.info("Connecting to MongoDB...")
 try:
     client = MongoClient(MONGO_URI)
@@ -44,7 +40,6 @@ except Exception as e:
     logging.critical(f"Failed to connect to MongoDB: {str(e)}")
     raise
 
-# Define constants
 TAGS = [
     "World News", "Politics", "Economy", "Business", "Technology",
     "Health", "Environment", "Science", "Education", "Sports",
@@ -53,7 +48,6 @@ TAGS = [
 ]
 BATCH_SIZE = 10
 
-# Configure session with retries
 session = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
 session.mount('https://', HTTPAdapter(max_retries=retries))
@@ -143,7 +137,6 @@ def job():
             logging.error(f"Error processing tag '{tag}': {str(e)}")
     logging.info("Job completed.")
 
-# Scheduler setup
 scheduler = BackgroundScheduler()
 scheduler.add_job(job, 'interval', minutes=45)
 scheduler.start()

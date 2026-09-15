@@ -1,14 +1,18 @@
 import SidebarComponent from "@/components/SideBar";
 import { cn } from "@/lib/utils";
-import { getSession } from "@auth0/nextjs-auth0";
+import { auth0 } from "@/lib/auth0";
 import Image from "next/image";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import EditPreferencesButton from "@/components/EditPreferencesButton";
 
 export default async function ProfilePage() {
-  const session = await getSession();
+  const session = await auth0.getSession();
   const user = session?.user || null;
+
+  if (!user) {
+    return <div>You must be logged in to view this page.</div>;
+  }
 
   return (
     <div
@@ -26,6 +30,7 @@ export default async function ProfilePage() {
             height={150}
             width={150}
             className="rounded-full"
+            alt="Profile picture"
           />
           <div className="w-[30rem] mt-10">
             <LabelInputContainer className="mb-4">
