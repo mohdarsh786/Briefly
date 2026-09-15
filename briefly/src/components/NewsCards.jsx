@@ -10,8 +10,6 @@ export default function NewsCards({ selectedTags }) {
           >
             Shortly
           </h1>
-          {/* <p className={`${alexBrush.className} invisible text-2xl sm:visible`}>Welcome !</p> */}
-          {/* <ThemeToggle /> */}
         </div>
         <Recommendations selectedTags={selectedTags} />
       </div>

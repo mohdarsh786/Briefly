@@ -1,4 +1,4 @@
-import { UserProvider } from '@auth0/nextjs-auth0/client';
+import { Auth0Provider } from '@auth0/nextjs-auth0/client';
 import { ThemeProvider } from 'next-themes';
 import { Alex_Brush } from "next/font/google";
 import "./globals.css";
@@ -20,11 +20,11 @@ export default function RootLayout({ children }) {
       <body
         className={`${alexBrush.variable} antialiased`}
       >
-        <UserProvider>
+        <Auth0Provider>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
             {children}
           </ThemeProvider>
-        </UserProvider>
+        </Auth0Provider>
       </body>
     </html>
   );

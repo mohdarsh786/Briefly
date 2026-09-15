@@ -30,9 +30,7 @@ function Recommendations(selectedTags) {
             selectedTags ? JSON.stringify(selectedTags.selectedTags) : ""
           }`
       );
-      console.log(res)
       const data = await res.json();
-      console.log(data)
 
       setArticles((prevArticles) => [...prevArticles, ...data.articles]);
       setLastKey(data.lastKey);
@@ -80,13 +78,6 @@ function Recommendations(selectedTags) {
         <div className="h-full w-full rounded-lg  bg-gray-100 dark:bg-neutral-800 animate-pulse"></div>
       ) : currentArticle ? (
         <div className="h-full flex flex-col lg:flex-row items-center p-4 bg-white dark:bg-gray-800 shadow-md rounded-lg ">
-          {/* <Image
-            src={currentArticle.image_url}
-            alt={currentArticle.title}
-            height={200}
-            width={300}
-            className="max-w-80 max-h-80 object-fill rounded-lg mr-8"
-          /> */}
           <img
             src={currentArticle.image_url}
             alt={currentArticle.title}
